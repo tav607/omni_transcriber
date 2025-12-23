@@ -1,0 +1,16 @@
+[project]
+name = "omni-transcriber"
+version = "0.1.0"
+description = "Telegram bot for AI-powered audio transcription using Gemini API"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "aiogram>=3.23.0",
+    "google-genai>=1.56.0",
+    "yt-dlp>=2025.12.08",
+    "pydub>=0.25.1",
+    "weasyprint>=67.0",
+    "markdown>=3.7",
+    "python-dotenv>=1.0.0",
+    "aiofiles>=24.0.0",
+]
