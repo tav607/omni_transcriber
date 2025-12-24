@@ -39,7 +39,10 @@ async def edit(
         on_status("Editing transcript...")
 
     # Initialize client
-    client = genai.Client(api_key=config.api_key)
+    client = genai.Client(
+        api_key=config.api_key,
+        http_options={"base_url": "https://generativelanguage.googleapis.com"},
+    )
 
     # Use override or default system prompt
     system_prompt = system_prompt_override or config.system_prompt

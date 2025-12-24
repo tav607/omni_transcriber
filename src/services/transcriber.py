@@ -62,7 +62,10 @@ async def transcribe(
     logger.info("Starting audio transcription processing...")
 
     # Initialize client
-    client = genai.Client(api_key=config.api_key)
+    client = genai.Client(
+        api_key=config.api_key,
+        http_options={"base_url": "https://generativelanguage.googleapis.com"},
+    )
 
     # Get MIME type based on file extension
     ext = os.path.splitext(audio_path)[1].lower()

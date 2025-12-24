@@ -12,6 +12,24 @@ logger = logging.getLogger(__name__)
 # Pattern to strip HTML tags that could be injected
 HTML_TAG_PATTERN = re.compile(r"<[^>]+>")
 
+# Pattern to match emoji characters (comprehensive range)
+EMOJI_PATTERN = re.compile(
+    "["
+    "\U0001F600-\U0001F64F"  # Emoticons
+    "\U0001F300-\U0001F5FF"  # Misc Symbols and Pictographs
+    "\U0001F680-\U0001F6FF"  # Transport and Map
+    "\U0001F1E0-\U0001F1FF"  # Flags
+    "\U0001F900-\U0001F9FF"  # Supplemental Symbols and Pictographs
+    "\U0001FA00-\U0001FA6F"  # Chess Symbols
+    "\U0001FA70-\U0001FAFF"  # Symbols and Pictographs Extended-A
+    "\U00002702-\U000027B0"  # Dingbats
+    "\U00002600-\U000026FF"  # Misc symbols (includes ✨)
+    "\U0000FE00-\U0000FE0F"  # Variation Selectors
+    "\U0000200D"             # Zero Width Joiner
+    "]+",
+    flags=re.UNICODE,
+)
+
 
 def _safe_url_fetcher(url: str, timeout: int = 10, ssl_context=None):
     """
@@ -31,6 +49,11 @@ def _safe_url_fetcher(url: str, timeout: int = 10, ssl_context=None):
         "string": b"",
         "mime_type": "text/plain",
     }
+
+
+def _strip_emojis(text: str) -> str:
+    """Remove emoji characters from text for PDF rendering."""
+    return EMOJI_PATTERN.sub("", text)
 
 
 def _sanitize_html(html_content: str) -> str:
@@ -88,8 +111,8 @@ DEFAULT_CSS = """
 }
 
 body {
-    font-family: "Noto Sans CJK SC", "PingFang SC", "Hiragino Sans GB",
-                 "Microsoft YaHei", "WenQuanYi Micro Hei", sans-serif;
+    font-family: "Sarasa Gothic SC", "Noto Sans CJK SC", "PingFang SC",
+                 "Microsoft YaHei", sans-serif;
     font-size: 12pt;
     line-height: 1.6;
     color: #333;
@@ -174,6 +197,9 @@ async def generate_pdf(markdown_content: str, output_path: str) -> str:
         Path to the generated PDF file
     """
     logger.info("Generating PDF from Markdown...")
+
+    # Strip emojis before PDF rendering (fonts don't support them)
+    markdown_content = _strip_emojis(markdown_content)
 
     # Convert Markdown to HTML
     html_content = markdown.markdown(

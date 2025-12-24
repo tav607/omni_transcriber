@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from typing import Literal
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv(override=True)
 
 
 @dataclass
@@ -189,3 +189,5 @@ def setup_logging():
         level=getattr(logging, config.log_level.upper(), logging.INFO),
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     )
+    # Suppress verbose fontTools logs during PDF font subsetting
+    logging.getLogger("fontTools").setLevel(logging.WARNING)

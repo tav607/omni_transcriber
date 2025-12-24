@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "aiogram>=3.23.0",
+    "aiohttp-socks>=0.9.0",
     "google-genai>=1.56.0",
     "yt-dlp>=2025.12.08",
     "pydub>=0.25.1",
