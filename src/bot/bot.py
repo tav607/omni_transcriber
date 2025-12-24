@@ -1,7 +1,9 @@
 import logging
+import os
 
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
+from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.enums import ParseMode
 
 from ..config import config
@@ -11,14 +13,33 @@ from .handlers import router
 logger = logging.getLogger(__name__)
 
 
+def get_proxy_url() -> str | None:
+    """Get proxy URL from environment variables."""
+    return (
+        os.environ.get("HTTPS_PROXY")
+        or os.environ.get("https_proxy")
+        or os.environ.get("HTTP_PROXY")
+        or os.environ.get("http_proxy")
+    )
+
+
 def create_bot() -> Bot:
     """Create and configure the Telegram bot."""
     if not config.telegram.bot_token:
         raise ValueError("TELEGRAM_BOT_TOKEN is not configured")
 
+    # Check for proxy
+    proxy_url = get_proxy_url()
+    session = None
+
+    if proxy_url:
+        logger.info(f"Using proxy: {proxy_url}")
+        session = AiohttpSession(proxy=proxy_url)
+
     return Bot(
         token=config.telegram.bot_token,
         default=DefaultBotProperties(parse_mode=ParseMode.MARKDOWN),
+        session=session,
     )
 
 

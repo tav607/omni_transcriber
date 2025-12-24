@@ -9,7 +9,7 @@ from aiogram.filters import Command
 
 from ..config import config
 from ..utils.url_parser import is_youtube_url, extract_video_id
-from ..services.youtube import download_audio, YouTubeError
+from ..services.youtube import download_audio
 from ..services.transcriber import transcribe
 from ..services.editor import edit
 from ..services.pdf_generator import generate_pdf
@@ -181,8 +181,6 @@ async def _process_youtube_url(
 
         await status_message.edit_text("Done! Your transcript is ready.")
 
-    except YouTubeError as e:
-        raise Exception(f"YouTube error: {e}")
     finally:
         # Cleanup temp files
         for path in [audio_path, md_path, pdf_path]:

@@ -95,9 +95,31 @@ Divide into three sections with level-2 headings:
 ```"""
 
 
+def _validate_thinking_level(value: str, field_name: str) -> Literal["low", "high"]:
+    """Validate thinking_level value."""
+    if value not in ("low", "high"):
+        raise ValueError(
+            f"Invalid {field_name}: '{value}'. Must be 'low' or 'high'."
+        )
+    return value  # type: ignore
+
+
 def load_config() -> AppConfig:
     """Load configuration from environment variables."""
+    # Validate required environment variables
     gemini_api_key = os.getenv("GEMINI_API_KEY", "")
+    if not gemini_api_key:
+        raise ValueError(
+            "GEMINI_API_KEY environment variable is required. "
+            "Please set it in your .env file."
+        )
+
+    bot_token = os.getenv("TELEGRAM_BOT_TOKEN", "")
+    if not bot_token:
+        raise ValueError(
+            "TELEGRAM_BOT_TOKEN environment variable is required. "
+            "Please set it in your .env file."
+        )
 
     # Parse allowed chat IDs
     chat_ids_str = os.getenv("TELEGRAM_ALLOWED_CHAT_IDS", "")
@@ -112,22 +134,32 @@ def load_config() -> AppConfig:
                     logging.warning(f"Invalid chat ID: {id_str}")
 
     telegram = TelegramConfig(
-        bot_token=os.getenv("TELEGRAM_BOT_TOKEN", ""),
+        bot_token=bot_token,
         allowed_chat_ids=allowed_chat_ids,
+    )
+
+    # Validate thinking levels
+    transcriber_thinking = _validate_thinking_level(
+        os.getenv("TRANSCRIBER_THINKING_LEVEL", "low"),
+        "TRANSCRIBER_THINKING_LEVEL",
+    )
+    editor_thinking = _validate_thinking_level(
+        os.getenv("EDITOR_THINKING_LEVEL", "high"),
+        "EDITOR_THINKING_LEVEL",
     )
 
     transcriber = TranscriberConfig(
         api_key=gemini_api_key,
         model=os.getenv("TRANSCRIBER_MODEL", "gemini-2.5-flash"),
         temperature=float(os.getenv("TRANSCRIBER_TEMPERATURE", "1.0")),
-        thinking_level=os.getenv("TRANSCRIBER_THINKING_LEVEL", "low"),  # type: ignore
+        thinking_level=transcriber_thinking,
     )
 
     editor = EditorConfig(
         api_key=gemini_api_key,
         model=os.getenv("EDITOR_MODEL", "gemini-2.5-pro"),
         temperature=float(os.getenv("EDITOR_TEMPERATURE", "1.0")),
-        thinking_level=os.getenv("EDITOR_THINKING_LEVEL", "high"),  # type: ignore
+        thinking_level=editor_thinking,
     )
 
     return AppConfig(

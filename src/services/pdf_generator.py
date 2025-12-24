@@ -123,7 +123,9 @@ async def generate_pdf(markdown_content: str, output_path: str) -> str:
 """
 
     # Ensure output directory exists
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    output_dir = os.path.dirname(output_path)
+    if output_dir:
+        os.makedirs(output_dir, exist_ok=True)
 
     # Generate PDF in thread pool (WeasyPrint is synchronous)
     loop = asyncio.get_event_loop()

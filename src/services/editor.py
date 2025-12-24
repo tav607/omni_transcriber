@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from typing import Callable
 
@@ -79,15 +80,18 @@ async def _edit_transcript(
     """Edit transcript using Gemini model."""
     logger.info("Processing transcript editing...")
 
-    response = client.models.generate_content(
-        model=model,
-        contents=user_content,
-        config=types.GenerateContentConfig(
-            system_instruction=system_prompt,
-            temperature=temperature,
-            thinking_config=types.ThinkingConfig(thinking_budget=thinking_budget),
-        ),
-    )
+    def _generate():
+        return client.models.generate_content(
+            model=model,
+            contents=user_content,
+            config=types.GenerateContentConfig(
+                system_instruction=system_prompt,
+                temperature=temperature,
+                thinking_config=types.ThinkingConfig(thinking_budget=thinking_budget),
+            ),
+        )
+
+    response = await asyncio.to_thread(_generate)
 
     # Validate response
     text = response.text

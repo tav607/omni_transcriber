@@ -1,3 +1,4 @@
+import asyncio
 import re
 import logging
 import os
@@ -145,7 +146,8 @@ async def _upload_file(
     client: genai.Client, file_path: str, mime_type: str
 ) -> types.File:
     """Upload a file to Gemini File API."""
-    return client.files.upload(
+    return await asyncio.to_thread(
+        client.files.upload,
         file=file_path,
         config=types.UploadFileConfig(mime_type=mime_type),
     )
@@ -161,25 +163,28 @@ async def _transcribe_audio(
     """Transcribe audio using Gemini model."""
     logger.info("Processing transcription...")
 
-    response = client.models.generate_content(
-        model=model,
-        contents=[
-            types.Content(
-                role="user",
-                parts=[
-                    types.Part.from_text(text=TRANSCRIPTION_PROMPT),
-                    types.Part.from_uri(
-                        file_uri=uploaded_file.uri,
-                        mime_type=uploaded_file.mime_type,
-                    ),
-                ],
-            )
-        ],
-        config=types.GenerateContentConfig(
-            temperature=temperature,
-            thinking_config=types.ThinkingConfig(thinking_budget=thinking_budget),
-        ),
-    )
+    def _generate():
+        return client.models.generate_content(
+            model=model,
+            contents=[
+                types.Content(
+                    role="user",
+                    parts=[
+                        types.Part.from_text(text=TRANSCRIPTION_PROMPT),
+                        types.Part.from_uri(
+                            file_uri=uploaded_file.uri,
+                            mime_type=uploaded_file.mime_type,
+                        ),
+                    ],
+                )
+            ],
+            config=types.GenerateContentConfig(
+                temperature=temperature,
+                thinking_config=types.ThinkingConfig(thinking_budget=thinking_budget),
+            ),
+        )
+
+    response = await asyncio.to_thread(_generate)
 
     # Validate response
     text = response.text
@@ -195,4 +200,4 @@ async def _transcribe_audio(
 
 async def _delete_file(client: genai.Client, file_name: str) -> None:
     """Delete a file from Gemini File API."""
-    client.files.delete(name=file_name)
+    await asyncio.to_thread(client.files.delete, name=file_name)
