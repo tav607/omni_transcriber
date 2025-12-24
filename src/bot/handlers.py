@@ -1,6 +1,8 @@
 import logging
 import os
-import tempfile
+import re
+import shutil
+import uuid
 from datetime import datetime
 
 from aiogram import Router, F
@@ -29,6 +31,53 @@ AUDIO_MIME_TYPES = [
     "audio/flac",
     "audio/aac",
 ]
+
+# Allowed characters for sanitized filenames (alphanumeric, hyphen, underscore, dot, CJK)
+SAFE_FILENAME_PATTERN = re.compile(r"[^\w\u4e00-\u9fff\-.]", re.UNICODE)
+
+# Pattern to extract h1 title from markdown
+H1_TITLE_PATTERN = re.compile(r"^#\s+(.+?)$", re.MULTILINE)
+
+
+def extract_title_from_transcript(transcript: str) -> str | None:
+    """
+    Extract the h1 title from a markdown transcript.
+
+    Returns the title text or None if not found.
+    """
+    match = H1_TITLE_PATTERN.search(transcript)
+    if match:
+        return match.group(1).strip()
+    return None
+
+
+def sanitize_filename(filename: str, max_length: int = 50) -> str:
+    """
+    Sanitize a filename to prevent path traversal and other attacks.
+
+    - Extracts basename to remove any path components
+    - Replaces unsafe characters with underscores
+    - Limits length to prevent filesystem issues
+    """
+    # Extract just the filename, removing any path components
+    filename = os.path.basename(filename)
+
+    # Split into name and extension
+    name, ext = os.path.splitext(filename)
+
+    # Replace unsafe characters
+    name = SAFE_FILENAME_PATTERN.sub("_", name)
+    ext = SAFE_FILENAME_PATTERN.sub("_", ext)
+
+    # Limit length
+    if len(name) > max_length:
+        name = name[:max_length]
+
+    # Ensure we have a valid name
+    if not name:
+        name = "file"
+
+    return name + ext
 
 
 @router.message(Command("start"))
@@ -69,19 +118,25 @@ async def handle_audio(message: Message):
     # Get the file object
     if message.audio:
         file = message.audio
-        file_name = file.file_name or f"audio_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp3"
+        file_name = file.file_name or f"audio_{uuid.uuid4().hex[:8]}.mp3"
     elif message.voice:
         file = message.voice
-        file_name = f"voice_{datetime.now().strftime('%Y%m%d_%H%M%S')}.ogg"
+        file_name = f"voice_{uuid.uuid4().hex[:8]}.ogg"
     elif message.document:
         file = message.document
-        # Check if it's an audio file
-        if file.mime_type and not any(
-            mime in file.mime_type for mime in ["audio/", "video/"]
-        ):
-            # Not an audio file, ignore
-            return
-        file_name = file.file_name or f"audio_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        # Check MIME type - only accept audio files
+        if file.mime_type:
+            if file.mime_type.startswith("video/"):
+                # Reject video files - they need ffmpeg extraction which we don't support
+                await message.answer(
+                    "Video files are not supported. "
+                    "Please extract the audio first or send an audio file directly."
+                )
+                return
+            if not file.mime_type.startswith("audio/"):
+                # Not an audio file, ignore
+                return
+        file_name = file.file_name or f"audio_{uuid.uuid4().hex[:8]}"
     else:
         return
 
@@ -128,17 +183,15 @@ async def _process_youtube_url(
     message: Message, url: str, status_message: Message
 ) -> None:
     """Process a YouTube URL and send the transcript."""
-    temp_dir = config.temp_dir
-    os.makedirs(temp_dir, exist_ok=True)
-
-    audio_path = None
-    md_path = None
-    pdf_path = None
+    # Create a unique temporary directory for this request to prevent collisions
+    request_id = uuid.uuid4().hex[:12]
+    request_temp_dir = os.path.join(config.temp_dir, f"yt_{request_id}")
+    os.makedirs(request_temp_dir, exist_ok=True)
 
     try:
         # Download audio
         await status_message.edit_text("Downloading audio from YouTube...")
-        audio_path = await download_audio(url, temp_dir)
+        audio_path = await download_audio(url, request_temp_dir)
 
         # Transcribe
         await status_message.edit_text("Transcribing audio...")
@@ -158,23 +211,34 @@ async def _process_youtube_url(
 
         # Generate output files
         await status_message.edit_text("Generating output files...")
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        video_id = extract_video_id(url) or "video"
+
+        # Extract title from transcript for filename
+        title = extract_title_from_transcript(edited_transcript)
+        if title:
+            # Sanitize the title for use as filename
+            safe_title = sanitize_filename(title, max_length=30)
+        else:
+            # Fallback to video_id if no title found
+            safe_title = extract_video_id(url) or "transcript"
+
+        # Add date stamp
+        date_stamp = datetime.now().strftime("%Y%m%d")
+        output_filename = f"{safe_title}_{date_stamp}"
 
         # Save Markdown
-        md_path = os.path.join(temp_dir, f"{video_id}_{timestamp}.md")
+        md_path = os.path.join(request_temp_dir, "transcript.md")
         with open(md_path, "w", encoding="utf-8") as f:
             f.write(edited_transcript)
 
         # Generate PDF
-        pdf_path = os.path.join(temp_dir, f"{video_id}_{timestamp}.pdf")
+        pdf_path = os.path.join(request_temp_dir, "transcript.pdf")
         await generate_pdf(edited_transcript, pdf_path)
 
         # Send files
         await status_message.edit_text("Sending files...")
 
-        md_file = FSInputFile(md_path, filename=f"{video_id}_transcript.md")
-        pdf_file = FSInputFile(pdf_path, filename=f"{video_id}_transcript.pdf")
+        md_file = FSInputFile(md_path, filename=f"{output_filename}.md")
+        pdf_file = FSInputFile(pdf_path, filename=f"{output_filename}.pdf")
 
         await message.answer_document(md_file, caption="Markdown transcript")
         await message.answer_document(pdf_file, caption="PDF transcript")
@@ -182,35 +246,33 @@ async def _process_youtube_url(
         await status_message.edit_text("Done! Your transcript is ready.")
 
     finally:
-        # Cleanup temp files
-        for path in [audio_path, md_path, pdf_path]:
-            if path and os.path.exists(path):
-                try:
-                    os.remove(path)
-                except Exception:
-                    pass
+        # Cleanup entire temp directory for this request
+        try:
+            shutil.rmtree(request_temp_dir)
+        except Exception:
+            pass
 
 
 async def _process_audio_file(
     message: Message, file, file_name: str, status_message: Message
 ) -> None:
     """Process an uploaded audio file and send the transcript."""
-    temp_dir = config.temp_dir
-    os.makedirs(temp_dir, exist_ok=True)
+    # Sanitize filename to prevent path traversal attacks
+    safe_filename = sanitize_filename(file_name)
+    base_name = os.path.splitext(safe_filename)[0] or "audio"
 
-    audio_path = None
-    md_path = None
-    pdf_path = None
+    # Create a unique temporary directory for this request to prevent collisions
+    request_id = uuid.uuid4().hex[:12]
+    request_temp_dir = os.path.join(config.temp_dir, f"audio_{request_id}")
+    os.makedirs(request_temp_dir, exist_ok=True)
 
     try:
         # Download file from Telegram
         await status_message.edit_text("Downloading audio file...")
 
-        # Get file extension
-        ext = os.path.splitext(file_name)[1] or ".mp3"
-        audio_path = os.path.join(
-            temp_dir, f"audio_{datetime.now().strftime('%Y%m%d_%H%M%S')}{ext}"
-        )
+        # Get file extension (sanitized)
+        ext = os.path.splitext(safe_filename)[1] or ".mp3"
+        audio_path = os.path.join(request_temp_dir, f"input{ext}")
 
         # Download file
         await message.bot.download(file, destination=audio_path)
@@ -233,23 +295,34 @@ async def _process_audio_file(
 
         # Generate output files
         await status_message.edit_text("Generating output files...")
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        base_name = os.path.splitext(file_name)[0]
+
+        # Extract title from transcript for filename
+        title = extract_title_from_transcript(edited_transcript)
+        if title:
+            # Sanitize the title for use as filename
+            safe_title = sanitize_filename(title, max_length=30)
+        else:
+            # Fallback to original filename if no title found
+            safe_title = base_name
+
+        # Add date stamp
+        date_stamp = datetime.now().strftime("%Y%m%d")
+        output_filename = f"{safe_title}_{date_stamp}"
 
         # Save Markdown
-        md_path = os.path.join(temp_dir, f"{base_name}_{timestamp}.md")
+        md_path = os.path.join(request_temp_dir, "transcript.md")
         with open(md_path, "w", encoding="utf-8") as f:
             f.write(edited_transcript)
 
         # Generate PDF
-        pdf_path = os.path.join(temp_dir, f"{base_name}_{timestamp}.pdf")
+        pdf_path = os.path.join(request_temp_dir, "transcript.pdf")
         await generate_pdf(edited_transcript, pdf_path)
 
         # Send files
         await status_message.edit_text("Sending files...")
 
-        md_file = FSInputFile(md_path, filename=f"{base_name}_transcript.md")
-        pdf_file = FSInputFile(pdf_path, filename=f"{base_name}_transcript.pdf")
+        md_file = FSInputFile(md_path, filename=f"{output_filename}.md")
+        pdf_file = FSInputFile(pdf_path, filename=f"{output_filename}.pdf")
 
         await message.answer_document(md_file, caption="Markdown transcript")
         await message.answer_document(pdf_file, caption="PDF transcript")
@@ -257,10 +330,8 @@ async def _process_audio_file(
         await status_message.edit_text("Done! Your transcript is ready.")
 
     finally:
-        # Cleanup temp files
-        for path in [audio_path, md_path, pdf_path]:
-            if path and os.path.exists(path):
-                try:
-                    os.remove(path)
-                except Exception:
-                    pass
+        # Cleanup entire temp directory for this request
+        try:
+            shutil.rmtree(request_temp_dir)
+        except Exception:
+            pass

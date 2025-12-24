@@ -1,11 +1,85 @@
 import asyncio
 import logging
 import os
+import re
 
 import markdown
-from weasyprint import HTML, CSS
+from weasyprint import HTML, CSS, default_url_fetcher
 
 logger = logging.getLogger(__name__)
+
+
+# Pattern to strip HTML tags that could be injected
+HTML_TAG_PATTERN = re.compile(r"<[^>]+>")
+
+
+def _safe_url_fetcher(url: str, timeout: int = 10, ssl_context=None):
+    """
+    Custom URL fetcher that blocks all external resources to prevent SSRF.
+
+    Only allows data: URIs for inline content.
+    Blocks file://, http://, https://, and any other schemes.
+    """
+    if url.startswith("data:"):
+        # Allow data URIs (inline content)
+        return default_url_fetcher(url, timeout, ssl_context)
+
+    # Block all other URLs to prevent SSRF and local file access
+    logger.warning(f"Blocked attempt to fetch external resource: {url}")
+    # Return empty content instead of raising an error
+    return {
+        "string": b"",
+        "mime_type": "text/plain",
+    }
+
+
+def _sanitize_html(html_content: str) -> str:
+    """
+    Remove potentially dangerous HTML elements from content.
+
+    This is a defense-in-depth measure - the url_fetcher also blocks resources.
+    """
+    # Remove script tags and their content
+    html_content = re.sub(
+        r"<script[^>]*>.*?</script>",
+        "",
+        html_content,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+
+    # Remove style tags with @import or url()
+    html_content = re.sub(
+        r"<style[^>]*>.*?</style>",
+        "",
+        html_content,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+
+    # Remove iframe, object, embed, frame tags
+    html_content = re.sub(
+        r"<(iframe|object|embed|frame|link)[^>]*>",
+        "",
+        html_content,
+        flags=re.IGNORECASE,
+    )
+
+    # Remove event handlers (onclick, onerror, etc.)
+    html_content = re.sub(
+        r"\s+on\w+\s*=\s*[\"'][^\"']*[\"']",
+        "",
+        html_content,
+        flags=re.IGNORECASE,
+    )
+
+    # Remove src/href attributes pointing to file:// or javascript:
+    html_content = re.sub(
+        r"\s+(src|href)\s*=\s*[\"'](file:|javascript:)[^\"']*[\"']",
+        "",
+        html_content,
+        flags=re.IGNORECASE,
+    )
+
+    return html_content
 
 DEFAULT_CSS = """
 @page {
@@ -107,6 +181,9 @@ async def generate_pdf(markdown_content: str, output_path: str) -> str:
         extensions=["tables", "fenced_code", "codehilite", "toc"],
     )
 
+    # Sanitize HTML to remove potentially dangerous elements
+    html_content = _sanitize_html(html_content)
+
     # Wrap in HTML document structure
     full_html = f"""
 <!DOCTYPE html>
@@ -139,6 +216,7 @@ async def generate_pdf(markdown_content: str, output_path: str) -> str:
 
 def _generate_pdf_sync(html_content: str, output_path: str) -> None:
     """Generate PDF synchronously (for thread pool execution)."""
-    html = HTML(string=html_content)
+    # Use custom url_fetcher to block all external resources (SSRF prevention)
+    html = HTML(string=html_content, url_fetcher=_safe_url_fetcher)
     css = CSS(string=DEFAULT_CSS)
     html.write_pdf(output_path, stylesheets=[css])

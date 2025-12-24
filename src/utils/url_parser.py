@@ -1,6 +1,28 @@
 import re
 from urllib.parse import urlparse, parse_qs
 
+# Valid YouTube domains
+YOUTUBE_DOMAINS = frozenset(["youtube.com", "youtu.be", "youtube-nocookie.com"])
+
+
+def _is_youtube_host(hostname: str) -> bool:
+    """
+    Check if a hostname is a valid YouTube domain.
+
+    Uses strict matching to prevent bypass attacks like youtube.com.evil.com
+    """
+    if not hostname:
+        return False
+
+    hostname = hostname.lower()
+
+    # Check exact match or valid subdomain
+    for domain in YOUTUBE_DOMAINS:
+        if hostname == domain or hostname.endswith("." + domain):
+            return True
+
+    return False
+
 
 def extract_video_id(url: str) -> str | None:
     """
@@ -29,23 +51,21 @@ def extract_video_id(url: str) -> str | None:
     # Try parsing as URL first
     try:
         parsed = urlparse(url)
-        hostname = parsed.hostname or ""
+        hostname = (parsed.hostname or "").lower()
 
-        # Check if it's a YouTube domain
-        if not any(
-            domain in hostname for domain in ["youtube.com", "youtu.be", "youtube-nocookie.com"]
-        ):
+        # Check if it's a valid YouTube domain (strict matching)
+        if not _is_youtube_host(hostname):
             return None
 
         # Handle youtu.be short URLs
-        if "youtu.be" in hostname:
+        if hostname == "youtu.be" or hostname.endswith(".youtu.be"):
             # Format: https://youtu.be/VIDEO_ID
             video_id = parsed.path.lstrip("/").split("/")[0]
             if video_id and _is_valid_video_id(video_id):
                 return video_id
 
-        # Handle youtube.com URLs
-        if "youtube" in hostname:
+        # Handle youtube.com URLs (hostname already validated by _is_youtube_host)
+        if hostname.endswith("youtube.com") or hostname.endswith("youtube-nocookie.com"):
             path = parsed.path
 
             # Handle /watch URLs
@@ -74,19 +94,8 @@ def extract_video_id(url: str) -> str | None:
                     return match.group(1)
 
     except Exception:
+        # URL parsing failed - don't use fallback regex as it could match non-YouTube URLs
         pass
-
-    # Fallback: try regex pattern matching on the raw URL
-    patterns = [
-        r"(?:v=|/v/|youtu\.be/|/embed/|/shorts/)([a-zA-Z0-9_-]{11})",
-    ]
-
-    for pattern in patterns:
-        match = re.search(pattern, url)
-        if match:
-            video_id = match.group(1)
-            if _is_valid_video_id(video_id):
-                return video_id
 
     return None
 
