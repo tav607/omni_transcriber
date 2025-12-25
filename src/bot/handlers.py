@@ -1,7 +1,9 @@
+import asyncio
 import logging
 import os
 import re
 import shutil
+import subprocess
 import uuid
 from dataclasses import replace
 from datetime import datetime
@@ -93,6 +95,49 @@ def sanitize_filename(filename: str, max_length: int = 50) -> str:
         name = "file"
 
     return name + ext
+
+
+async def upload_to_rclone(file_path: str, filename: str, chat_id: int) -> bool:
+    """
+    Upload a file to rclone destination if enabled for this chat.
+
+    Args:
+        file_path: Path to the file to upload
+        filename: Desired filename in destination
+        chat_id: Chat ID of the user
+
+    Returns:
+        True if upload succeeded, False otherwise
+    """
+    # Check if rclone is enabled and user is allowed
+    if not config.rclone.is_enabled:
+        return False
+
+    if chat_id not in config.rclone.enabled_chat_ids:
+        return False
+
+    destination = f"{config.rclone.upload_path}/{filename}"
+    logger.info(f"Uploading to rclone: {destination}")
+
+    try:
+        # Run rclone copy in a subprocess
+        process = await asyncio.create_subprocess_exec(
+            "rclone", "copyto", file_path, destination,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        stdout, stderr = await process.communicate()
+
+        if process.returncode != 0:
+            logger.error(f"Rclone upload failed: {stderr.decode()}")
+            return False
+
+        logger.info(f"Rclone upload succeeded: {destination}")
+        return True
+
+    except Exception as e:
+        logger.error(f"Rclone upload error: {e}")
+        return False
 
 
 @router.message(Command("start"))
@@ -506,7 +551,12 @@ async def _process_video_url(
         await message.answer_document(md_file, caption="Markdown transcript")
         await message.answer_document(pdf_file, caption="PDF transcript")
 
-        await status_message.edit_text("Done! Your transcript is ready.")
+        # Upload to rclone if enabled for this user
+        rclone_uploaded = await upload_to_rclone(md_path, f"{output_filename}.md", chat_id)
+        if rclone_uploaded:
+            await status_message.edit_text("Done! Your transcript is ready. (Synced to Dropbox)")
+        else:
+            await status_message.edit_text("Done! Your transcript is ready.")
 
     finally:
         # Cleanup entire temp directory for this request
@@ -611,7 +661,12 @@ async def _process_audio_file(
         await message.answer_document(md_file, caption="Markdown transcript")
         await message.answer_document(pdf_file, caption="PDF transcript")
 
-        await status_message.edit_text("Done! Your transcript is ready.")
+        # Upload to rclone if enabled for this user
+        rclone_uploaded = await upload_to_rclone(md_path, f"{output_filename}.md", chat_id)
+        if rclone_uploaded:
+            await status_message.edit_text("Done! Your transcript is ready. (Synced to Dropbox)")
+        else:
+            await status_message.edit_text("Done! Your transcript is ready.")
 
     finally:
         # Cleanup entire temp directory for this request

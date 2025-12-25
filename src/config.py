@@ -35,10 +35,21 @@ class TelegramConfig:
 
 
 @dataclass
+class RcloneConfig:
+    upload_path: str = ""  # e.g., "dropbox:/Obsidian/Transcripts"
+    enabled_chat_ids: list[int] = field(default_factory=list)
+
+    @property
+    def is_enabled(self) -> bool:
+        return bool(self.upload_path)
+
+
+@dataclass
 class AppConfig:
     telegram: TelegramConfig
     transcriber: TranscriberConfig
     editor: EditorConfig
+    rclone: RcloneConfig = field(default_factory=RcloneConfig)
     temp_dir: str = "/tmp/omni_transcriber"
     log_level: str = "INFO"
 
@@ -171,10 +182,28 @@ def load_config() -> AppConfig:
         thinking_level=editor_thinking,
     )
 
+    # Parse rclone enabled chat IDs
+    rclone_chat_ids_str = os.getenv("RCLONE_ENABLED_CHAT_IDS", "")
+    rclone_enabled_chat_ids = []
+    if rclone_chat_ids_str:
+        for id_str in rclone_chat_ids_str.split(","):
+            id_str = id_str.strip()
+            if id_str:
+                try:
+                    rclone_enabled_chat_ids.append(int(id_str))
+                except ValueError:
+                    logging.warning(f"Invalid rclone chat ID: {id_str}")
+
+    rclone = RcloneConfig(
+        upload_path=os.getenv("RCLONE_UPLOAD_PATH", ""),
+        enabled_chat_ids=rclone_enabled_chat_ids,
+    )
+
     return AppConfig(
         telegram=telegram,
         transcriber=transcriber,
         editor=editor,
+        rclone=rclone,
         temp_dir=os.getenv("TEMP_DIR", "/tmp/omni_transcriber"),
         log_level=os.getenv("LOG_LEVEL", "INFO"),
     )
