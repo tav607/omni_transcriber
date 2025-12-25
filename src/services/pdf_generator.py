@@ -142,7 +142,7 @@ h3 {
 
 p {
     margin: 0.8em 0;
-    text-align: justify;
+    text-align: left;
 }
 
 ul, ol {

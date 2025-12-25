@@ -11,8 +11,8 @@ from aiogram.types import Message, FSInputFile, CallbackQuery, InlineKeyboardBut
 from aiogram.filters import Command
 
 from ..config import config
-from ..utils.url_parser import is_youtube_url, is_bilibili_url, is_supported_url, get_url_platform, extract_video_id
-from ..services.youtube import download_audio
+from ..utils.url_parser import is_youtube_url, is_bilibili_url, is_apple_podcasts_url, is_supported_url, get_url_platform, extract_video_id
+from ..services.downloader import download_audio
 from ..services.transcriber import transcribe
 from ..services.editor import edit
 from ..services.pdf_generator import generate_pdf
@@ -101,9 +101,11 @@ async def cmd_start(message: Message):
     await message.answer(
         "Welcome to the AI Transcriber Bot!\n\n"
         "I can help you transcribe audio from:\n"
-        "- YouTube videos (send me a YouTube URL)\n"
-        "- Bilibili videos (send me a Bilibili URL)\n"
-        "- Audio files (send me an audio file)\n\n"
+        "- YouTube videos\n"
+        "- Bilibili videos\n"
+        "- Apple Podcasts\n"
+        "- Audio files\n\n"
+        "Just send me a URL or audio file!\n\n"
         "I'll generate a formatted transcript with summary and key points, "
         "delivered as both Markdown and PDF files."
     )
@@ -114,11 +116,10 @@ async def cmd_help(message: Message):
     """Handle /help command."""
     await message.answer(
         "*How to use this bot:*\n\n"
-        "*YouTube / Bilibili Videos:*\n"
-        "Simply send me a video URL\n"
-        "Example: `https://www.youtube.com/watch?v=...`\n"
-        "Example: `https://www.bilibili.com/video/BV...`\n"
-        "Example: `https://b23.tv/...`\n\n"
+        "*Supported URLs:*\n"
+        "• YouTube: `youtube.com/watch?v=...`\n"
+        "• Bilibili: `bilibili.com/video/BV...`\n"
+        "• Apple Podcasts: `podcasts.apple.com/...`\n\n"
         "*Audio Files:*\n"
         "Send me an audio file (mp3, m4a, wav, webm, etc.)\n\n"
         "*Settings:*\n"
@@ -356,7 +357,7 @@ async def handle_audio(message: Message):
 
 @router.message(F.text)
 async def handle_text(message: Message):
-    """Handle text messages (check for YouTube/Bilibili URLs)."""
+    """Handle text messages (check for YouTube/Bilibili/Apple Podcasts URLs)."""
     text = message.text
     if not text:
         return
@@ -391,10 +392,23 @@ async def handle_text(message: Message):
             logger.error(f"Error processing Bilibili URL: {e}", exc_info=True)
             await status_message.edit_text(f"Error processing Bilibili video: {str(e)}")
 
+    elif platform == "apple_podcasts":
+        logger.info(f"Received Apple Podcasts URL: {text}")
+        status_message = await message.answer(
+            "Detected Apple Podcasts. Processing...",
+            parse_mode="Markdown",
+        )
+
+        try:
+            await _process_video_url(message, text, status_message, platform)
+        except Exception as e:
+            logger.error(f"Error processing Apple Podcasts URL: {e}", exc_info=True)
+            await status_message.edit_text(f"Error processing podcast: {str(e)}")
+
     else:
         # Not a supported URL, ignore or send help
         await message.answer(
-            "Please send me a YouTube/Bilibili URL or an audio file.\n"
+            "Please send me a URL (YouTube/Bilibili/Apple Podcasts) or an audio file.\n"
             "Use /help for more information."
         )
 
@@ -425,11 +439,13 @@ async def _process_video_url(
 
     # Create a unique temporary directory for this request to prevent collisions
     request_id = uuid.uuid4().hex[:12]
-    platform_prefix = "yt" if platform == "youtube" else "bili"
+    platform_prefixes = {"youtube": "yt", "bilibili": "bili", "apple_podcasts": "pod"}
+    platform_prefix = platform_prefixes.get(platform, "media")
     request_temp_dir = os.path.join(config.temp_dir, f"{platform_prefix}_{request_id}")
     os.makedirs(request_temp_dir, exist_ok=True)
 
-    platform_name = "YouTube" if platform == "youtube" else "Bilibili"
+    platform_names = {"youtube": "YouTube", "bilibili": "Bilibili", "apple_podcasts": "Apple Podcasts"}
+    platform_name = platform_names.get(platform, "source")
 
     try:
         # Download audio

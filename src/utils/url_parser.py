@@ -7,6 +7,9 @@ YOUTUBE_DOMAINS = frozenset(["youtube.com", "youtu.be", "youtube-nocookie.com"])
 # Valid Bilibili domains
 BILIBILI_DOMAINS = frozenset(["bilibili.com", "b23.tv"])
 
+# Valid Apple Podcasts domains
+APPLE_PODCASTS_DOMAINS = frozenset(["podcasts.apple.com"])
+
 
 def _is_youtube_host(hostname: str) -> bool:
     """
@@ -144,6 +147,55 @@ def _is_bilibili_host(hostname: str) -> bool:
     return False
 
 
+def extract_bilibili_video_id(url: str) -> str | None:
+    """
+    Extract Bilibili video ID from various URL formats.
+
+    Supported formats:
+    - https://www.bilibili.com/video/BVxxxxxxxxxx
+    - https://bilibili.com/video/avxxxxxxxx
+    - https://b23.tv/xxxxxxx (short URL)
+
+    Args:
+        url: The Bilibili URL to parse
+
+    Returns:
+        The video ID (BV or av number) or None if not found
+    """
+    if not url:
+        return None
+
+    url = url.strip()
+
+    try:
+        parsed = urlparse(url)
+        hostname = (parsed.hostname or "").lower()
+
+        if not _is_bilibili_host(hostname):
+            return None
+
+        # b23.tv short URLs - return the short code
+        if hostname == "b23.tv" or hostname.endswith(".b23.tv"):
+            path = parsed.path.lstrip("/").split("/")[0]
+            if path:
+                return path
+            return None
+
+        # bilibili.com video URLs
+        if hostname.endswith("bilibili.com"):
+            path = parsed.path
+            # Match /video/BVxxxxxxxx or /video/avxxxxxxxx
+            if "/video/" in path:
+                match = re.search(r"/video/(BV[a-zA-Z0-9]+|av\d+)", path)
+                if match:
+                    return match.group(1)
+
+        return None
+
+    except Exception:
+        return None
+
+
 def is_bilibili_url(text: str) -> bool:
     """
     Check if a text contains a Bilibili URL.
@@ -159,38 +211,96 @@ def is_bilibili_url(text: str) -> bool:
     Returns:
         True if the text contains a Bilibili URL
     """
-    if not text:
+    return extract_bilibili_video_id(text) is not None
+
+
+def _is_apple_podcasts_host(hostname: str) -> bool:
+    """
+    Check if a hostname is a valid Apple Podcasts domain.
+    """
+    if not hostname:
         return False
 
-    text = text.strip()
+    hostname = hostname.lower()
+
+    for domain in APPLE_PODCASTS_DOMAINS:
+        if hostname == domain or hostname.endswith("." + domain):
+            return True
+
+    return False
+
+
+def extract_apple_podcasts_id(url: str) -> str | None:
+    """
+    Extract Apple Podcasts episode ID from URL.
+
+    Supported formats:
+    - https://podcasts.apple.com/us/podcast/xxx/id1234567890
+    - https://podcasts.apple.com/us/podcast/xxx/id1234567890?i=1000xxxxxxxxx
+
+    Args:
+        url: The Apple Podcasts URL to parse
+
+    Returns:
+        A unique identifier for the episode or None if not found
+    """
+    if not url:
+        return None
+
+    url = url.strip()
 
     try:
-        parsed = urlparse(text)
+        parsed = urlparse(url)
         hostname = (parsed.hostname or "").lower()
 
-        if not _is_bilibili_host(hostname):
-            return False
+        if not _is_apple_podcasts_host(hostname):
+            return None
 
-        # b23.tv short URLs
-        if hostname == "b23.tv" or hostname.endswith(".b23.tv"):
-            return bool(parsed.path and len(parsed.path) > 1)
+        path = parsed.path
+        if "/podcast/" not in path:
+            return None
 
-        # bilibili.com video URLs
-        if hostname.endswith("bilibili.com"):
-            path = parsed.path
-            # Match /video/BVxxxxxxxx or /video/avxxxxxxxx
-            if "/video/" in path:
-                return bool(re.search(r"/video/(BV[a-zA-Z0-9]+|av\d+)", path))
+        # Extract podcast ID (idXXXXXX)
+        podcast_id_match = re.search(r"/id(\d+)", path)
+        if not podcast_id_match:
+            return None
 
-        return False
+        podcast_id = podcast_id_match.group(1)
+
+        # Check for episode ID in query params (?i=1000xxxxxxxxx)
+        query_params = parse_qs(parsed.query)
+        episode_ids = query_params.get("i", [])
+        if episode_ids:
+            # Return combined ID: podcast_episode
+            return f"{podcast_id}_{episode_ids[0]}"
+
+        # Return just podcast ID if no episode specified
+        return podcast_id
 
     except Exception:
-        return False
+        return None
+
+
+def is_apple_podcasts_url(text: str) -> bool:
+    """
+    Check if a text contains an Apple Podcasts URL.
+
+    Supported formats:
+    - https://podcasts.apple.com/us/podcast/xxx/id1234567890
+    - https://podcasts.apple.com/us/podcast/xxx/id1234567890?i=1000xxxxxxxxx
+
+    Args:
+        text: The text to check
+
+    Returns:
+        True if the text contains an Apple Podcasts URL
+    """
+    return extract_apple_podcasts_id(text) is not None
 
 
 def is_supported_url(text: str) -> bool:
     """
-    Check if a text contains a supported video URL (YouTube or Bilibili).
+    Check if a text contains a supported URL (YouTube, Bilibili, or Apple Podcasts).
 
     Args:
         text: The text to check
@@ -198,7 +308,7 @@ def is_supported_url(text: str) -> bool:
     Returns:
         True if the text contains a supported URL
     """
-    return is_youtube_url(text) or is_bilibili_url(text)
+    return is_youtube_url(text) or is_bilibili_url(text) or is_apple_podcasts_url(text)
 
 
 def get_url_platform(text: str) -> str | None:
@@ -209,10 +319,12 @@ def get_url_platform(text: str) -> str | None:
         text: The URL text
 
     Returns:
-        Platform name ("youtube" or "bilibili") or None if not supported
+        Platform name ("youtube", "bilibili", or "apple_podcasts") or None if not supported
     """
     if is_youtube_url(text):
         return "youtube"
     if is_bilibili_url(text):
         return "bilibili"
+    if is_apple_podcasts_url(text):
+        return "apple_podcasts"
     return None

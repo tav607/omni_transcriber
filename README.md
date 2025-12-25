@@ -4,7 +4,7 @@ Telegram bot for AI-powered audio transcription using Google Gemini API.
 
 ## Features
 
-- Transcribe audio from YouTube and Bilibili videos
+- Transcribe audio from YouTube, Bilibili, and Apple Podcasts
 - Transcribe uploaded audio files (mp3, m4a, wav, webm, ogg, flac)
 - Generate formatted transcripts with summary and key points
 - Output as both Markdown and PDF files
@@ -104,6 +104,7 @@ To restrict bot access, you need your Telegram Chat ID:
 
 - **YouTube**: Send a YouTube URL (youtube.com, youtu.be, shorts)
 - **Bilibili**: Send a Bilibili URL (bilibili.com, b23.tv)
+- **Apple Podcasts**: Send an Apple Podcasts URL (podcasts.apple.com)
 - **Audio file**: Send an audio file directly
 
 The bot will reply with:
