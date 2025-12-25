@@ -17,11 +17,11 @@ sudo apt install libpango-1.0-0 libpangocairo-1.0-0 libgdk-pixbuf2.0-0 libffi-de
 
 ## Architecture
 
-Telegram bot that transcribes audio (from YouTube URLs or uploaded files) using Google Gemini API, then outputs formatted Markdown and PDF files.
+Telegram bot that transcribes audio (from YouTube/Bilibili URLs or uploaded files) using Google Gemini API, then outputs formatted Markdown and PDF files.
 
 ### Processing Pipeline
 
-1. **Input**: YouTube URL → `services/youtube.py` downloads audio via yt-dlp
+1. **Input**: YouTube/Bilibili URL → `services/youtube.py` downloads audio via yt-dlp
    **or** Audio file upload → downloaded from Telegram
 2. **Transcription**: `services/transcriber.py` uploads audio to Gemini File API, transcribes with Gemini model
 3. **Editing**: `services/editor.py` formats raw transcript into structured Markdown (Chinese summary + original language transcript)
@@ -30,10 +30,11 @@ Telegram bot that transcribes audio (from YouTube URLs or uploaded files) using 
 ### Key Modules
 
 - `src/config.py` - Configuration from environment variables, includes editor system prompt
-- `src/bot/handlers.py` - Telegram message handlers, orchestrates the pipeline
+- `src/bot/handlers.py` - Telegram message handlers, orchestrates the pipeline, manages user settings
+- `src/bot/bot.py` - Bot initialization, command registration (whitelist-aware)
 - `src/bot/middleware.py` - Chat ID authorization middleware
 - `src/utils/retry.py` - Retry wrapper for API calls
-- `src/utils/url_parser.py` - YouTube URL detection and video ID extraction
+- `src/utils/url_parser.py` - YouTube/Bilibili URL detection
 
 ### Configuration
 

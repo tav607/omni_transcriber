@@ -4,11 +4,14 @@ Telegram bot for AI-powered audio transcription using Google Gemini API.
 
 ## Features
 
-- Transcribe audio from YouTube videos (supports various URL formats)
+- Transcribe audio from YouTube and Bilibili videos
 - Transcribe uploaded audio files (mp3, m4a, wav, webm, ogg, flac)
 - Generate formatted transcripts with summary and key points
 - Output as both Markdown and PDF files
 - Chinese summary with original language transcript preservation
+- User settings via Telegram commands:
+  - `/model` - Choose AI model (Flash/Pro) for transcription and editing
+  - `/translation` - Toggle inline Chinese translation for non-Chinese content
 
 ## Prerequisites
 
@@ -99,12 +102,20 @@ To restrict bot access, you need your Telegram Chat ID:
 
 ## Usage
 
-- **YouTube**: Send a YouTube URL (supports youtube.com, youtu.be, shorts)
+- **YouTube**: Send a YouTube URL (youtube.com, youtu.be, shorts)
+- **Bilibili**: Send a Bilibili URL (bilibili.com, b23.tv)
 - **Audio file**: Send an audio file directly
 
 The bot will reply with:
 - A Markdown file containing the formatted transcript
 - A PDF file for easy reading and sharing
+
+### Commands
+
+- `/start` - Welcome message
+- `/help` - Usage instructions
+- `/model` - Choose AI model (Flash/Pro) for transcriber and editor
+- `/translation` - Toggle inline Chinese translation
 
 ## Proxy Support
 

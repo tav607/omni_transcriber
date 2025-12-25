@@ -4,6 +4,9 @@ from urllib.parse import urlparse, parse_qs
 # Valid YouTube domains
 YOUTUBE_DOMAINS = frozenset(["youtube.com", "youtu.be", "youtube-nocookie.com"])
 
+# Valid Bilibili domains
+BILIBILI_DOMAINS = frozenset(["bilibili.com", "b23.tv"])
+
 
 def _is_youtube_host(hostname: str) -> bool:
     """
@@ -123,3 +126,93 @@ def is_youtube_url(text: str) -> bool:
         True if the text contains a YouTube URL
     """
     return extract_video_id(text) is not None
+
+
+def _is_bilibili_host(hostname: str) -> bool:
+    """
+    Check if a hostname is a valid Bilibili domain.
+    """
+    if not hostname:
+        return False
+
+    hostname = hostname.lower()
+
+    for domain in BILIBILI_DOMAINS:
+        if hostname == domain or hostname.endswith("." + domain):
+            return True
+
+    return False
+
+
+def is_bilibili_url(text: str) -> bool:
+    """
+    Check if a text contains a Bilibili URL.
+
+    Supported formats:
+    - https://www.bilibili.com/video/BVxxxxxxxxxx
+    - https://bilibili.com/video/avxxxxxxxx
+    - https://b23.tv/xxxxxxx (short URL)
+
+    Args:
+        text: The text to check
+
+    Returns:
+        True if the text contains a Bilibili URL
+    """
+    if not text:
+        return False
+
+    text = text.strip()
+
+    try:
+        parsed = urlparse(text)
+        hostname = (parsed.hostname or "").lower()
+
+        if not _is_bilibili_host(hostname):
+            return False
+
+        # b23.tv short URLs
+        if hostname == "b23.tv" or hostname.endswith(".b23.tv"):
+            return bool(parsed.path and len(parsed.path) > 1)
+
+        # bilibili.com video URLs
+        if hostname.endswith("bilibili.com"):
+            path = parsed.path
+            # Match /video/BVxxxxxxxx or /video/avxxxxxxxx
+            if "/video/" in path:
+                return bool(re.search(r"/video/(BV[a-zA-Z0-9]+|av\d+)", path))
+
+        return False
+
+    except Exception:
+        return False
+
+
+def is_supported_url(text: str) -> bool:
+    """
+    Check if a text contains a supported video URL (YouTube or Bilibili).
+
+    Args:
+        text: The text to check
+
+    Returns:
+        True if the text contains a supported URL
+    """
+    return is_youtube_url(text) or is_bilibili_url(text)
+
+
+def get_url_platform(text: str) -> str | None:
+    """
+    Get the platform name for a supported URL.
+
+    Args:
+        text: The URL text
+
+    Returns:
+        Platform name ("youtube" or "bilibili") or None if not supported
+    """
+    if is_youtube_url(text):
+        return "youtube"
+    if is_bilibili_url(text):
+        return "bilibili"
+    return None

@@ -11,7 +11,7 @@ from aiogram.types import Message, FSInputFile, CallbackQuery, InlineKeyboardBut
 from aiogram.filters import Command
 
 from ..config import config
-from ..utils.url_parser import is_youtube_url, extract_video_id
+from ..utils.url_parser import is_youtube_url, is_bilibili_url, is_supported_url, get_url_platform, extract_video_id
 from ..services.youtube import download_audio
 from ..services.transcriber import transcribe
 from ..services.editor import edit
@@ -102,6 +102,7 @@ async def cmd_start(message: Message):
         "Welcome to the AI Transcriber Bot!\n\n"
         "I can help you transcribe audio from:\n"
         "- YouTube videos (send me a YouTube URL)\n"
+        "- Bilibili videos (send me a Bilibili URL)\n"
         "- Audio files (send me an audio file)\n\n"
         "I'll generate a formatted transcript with summary and key points, "
         "delivered as both Markdown and PDF files."
@@ -113,10 +114,11 @@ async def cmd_help(message: Message):
     """Handle /help command."""
     await message.answer(
         "*How to use this bot:*\n\n"
-        "*YouTube Videos:*\n"
-        "Simply send me a YouTube URL (long or short format)\n"
+        "*YouTube / Bilibili Videos:*\n"
+        "Simply send me a video URL\n"
         "Example: `https://www.youtube.com/watch?v=...`\n"
-        "Example: `https://youtu.be/...`\n\n"
+        "Example: `https://www.bilibili.com/video/BV...`\n"
+        "Example: `https://b23.tv/...`\n\n"
         "*Audio Files:*\n"
         "Send me an audio file (mp3, m4a, wav, webm, etc.)\n\n"
         "*Settings:*\n"
@@ -354,13 +356,15 @@ async def handle_audio(message: Message):
 
 @router.message(F.text)
 async def handle_text(message: Message):
-    """Handle text messages (check for YouTube URLs)."""
+    """Handle text messages (check for YouTube/Bilibili URLs)."""
     text = message.text
     if not text:
         return
 
-    # Check if it's a YouTube URL
-    if is_youtube_url(text):
+    # Check if it's a supported video URL
+    platform = get_url_platform(text)
+
+    if platform == "youtube":
         video_id = extract_video_id(text)
         logger.info(f"Received YouTube URL, video_id: {video_id}")
         status_message = await message.answer(
@@ -369,22 +373,36 @@ async def handle_text(message: Message):
         )
 
         try:
-            await _process_youtube_url(message, text, status_message)
+            await _process_video_url(message, text, status_message, platform)
         except Exception as e:
             logger.error(f"Error processing YouTube URL: {e}", exc_info=True)
             await status_message.edit_text(f"Error processing YouTube video: {str(e)}")
+
+    elif platform == "bilibili":
+        logger.info(f"Received Bilibili URL: {text}")
+        status_message = await message.answer(
+            "Detected Bilibili video. Processing...",
+            parse_mode="Markdown",
+        )
+
+        try:
+            await _process_video_url(message, text, status_message, platform)
+        except Exception as e:
+            logger.error(f"Error processing Bilibili URL: {e}", exc_info=True)
+            await status_message.edit_text(f"Error processing Bilibili video: {str(e)}")
+
     else:
-        # Not a YouTube URL, ignore or send help
+        # Not a supported URL, ignore or send help
         await message.answer(
-            "Please send me a YouTube URL or an audio file.\n"
+            "Please send me a YouTube/Bilibili URL or an audio file.\n"
             "Use /help for more information."
         )
 
 
-async def _process_youtube_url(
-    message: Message, url: str, status_message: Message
+async def _process_video_url(
+    message: Message, url: str, status_message: Message, platform: str
 ) -> None:
-    """Process a YouTube URL and send the transcript."""
+    """Process a video URL (YouTube/Bilibili) and send the transcript."""
     # Get user settings
     chat_id = message.chat.id
     settings = user_settings.get(chat_id, {})
@@ -407,12 +425,15 @@ async def _process_youtube_url(
 
     # Create a unique temporary directory for this request to prevent collisions
     request_id = uuid.uuid4().hex[:12]
-    request_temp_dir = os.path.join(config.temp_dir, f"yt_{request_id}")
+    platform_prefix = "yt" if platform == "youtube" else "bili"
+    request_temp_dir = os.path.join(config.temp_dir, f"{platform_prefix}_{request_id}")
     os.makedirs(request_temp_dir, exist_ok=True)
+
+    platform_name = "YouTube" if platform == "youtube" else "Bilibili"
 
     try:
         # Download audio
-        await status_message.edit_text("Downloading audio from YouTube...")
+        await status_message.edit_text(f"Downloading audio from {platform_name}...")
         audio_path = await download_audio(url, request_temp_dir)
 
         # Transcribe
@@ -441,8 +462,11 @@ async def _process_youtube_url(
             # Sanitize the title for use as filename
             safe_title = sanitize_filename(title, max_length=30)
         else:
-            # Fallback to video_id if no title found
-            safe_title = extract_video_id(url) or "transcript"
+            # Fallback to video_id/platform if no title found
+            if platform == "youtube":
+                safe_title = extract_video_id(url) or "transcript"
+            else:
+                safe_title = "transcript"
 
         # Add date stamp
         date_stamp = datetime.now().strftime("%Y%m%d")
