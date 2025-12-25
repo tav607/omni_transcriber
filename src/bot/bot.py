@@ -5,6 +5,7 @@ from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.enums import ParseMode
+from aiogram.types import BotCommand, BotCommandScopeChat, BotCommandScopeDefault
 
 from ..config import config
 from .middleware import AuthorizationMiddleware
@@ -72,6 +73,36 @@ async def run_bot():
     """Run the bot with polling."""
     bot = create_bot()
     dp = create_dispatcher()
+
+    # Register bot commands for the menu
+    commands = [
+        BotCommand(command="start", description="Start the bot"),
+        BotCommand(command="help", description="Show help information"),
+        BotCommand(command="model", description="Choose AI model (Flash/Pro)"),
+        BotCommand(command="translation", description="Toggle translation mode (on/off)"),
+    ]
+
+    # Set up command visibility based on whitelist
+    if config.telegram.allowed_chat_ids:
+        # Clear commands for everyone (non-whitelisted users see nothing)
+        await bot.set_my_commands([], scope=BotCommandScopeDefault())
+        logger.info("Cleared default command menu for non-whitelisted users")
+
+        # Set commands for each allowed chat
+        for chat_id in config.telegram.allowed_chat_ids:
+            try:
+                await bot.set_my_commands(
+                    commands,
+                    scope=BotCommandScopeChat(chat_id=chat_id),
+                )
+                logger.info(f"Set commands for chat_id: {chat_id}")
+            except Exception as e:
+                # May fail if bot hasn't chatted with user yet
+                logger.debug(f"Could not set commands for chat_id {chat_id}: {e}")
+    else:
+        # No whitelist - show commands to everyone
+        await bot.set_my_commands(commands)
+        logger.info("Bot commands registered for all users")
 
     logger.info("Starting bot...")
 

@@ -12,11 +12,38 @@ logger = logging.getLogger(__name__)
 
 USER_PROMPT_PREFIX = "Here's the transcript:\n\n"
 
+TRANSLATION_PROMPT_ADDITION = """
+
+## Translation Mode (ENABLED)
+Since translation mode is enabled, you must add inline Chinese translations to the Transcript section:
+
+1. **Detect language**: First determine if the transcript is primarily in Chinese
+2. **If NOT Chinese**: After each paragraph in the Transcript section, add a blockquote with the Chinese translation
+3. **If Chinese**: No translation needed, output normally
+
+### Translation Format
+For non-Chinese transcripts, format each paragraph like this:
+```
+Original paragraph text here.
+> 这里是中文翻译。
+
+Next paragraph in original language.
+> 下一段的中文翻译。
+```
+
+### Translation Requirements
+- Translate the meaning accurately, not word-for-word
+- Maintain the same paragraph structure
+- Use `> ` (blockquote) for all translations
+- Keep translations natural and readable in Chinese
+"""
+
 
 async def edit(
     transcript: str,
     config: EditorConfig,
     system_prompt_override: str | None = None,
+    enable_translation: bool = False,
     on_status: Callable[[str], None] | None = None,
 ) -> str:
     """
@@ -26,6 +53,7 @@ async def edit(
         transcript: The raw transcript text to edit
         config: Editor configuration
         system_prompt_override: Optional override for the system prompt
+        enable_translation: If True, add inline Chinese translations for non-Chinese transcripts
         on_status: Optional callback to report status updates
 
     Returns:
@@ -46,6 +74,11 @@ async def edit(
 
     # Use override or default system prompt
     system_prompt = system_prompt_override or config.system_prompt
+
+    # Add translation instructions if enabled
+    if enable_translation:
+        system_prompt = system_prompt + TRANSLATION_PROMPT_ADDITION
+        logger.info("Translation mode enabled")
 
     # Configure thinking based on level
     thinking_budget = 1024 if config.thinking_level == "low" else 8192

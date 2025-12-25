@@ -3,10 +3,11 @@ import os
 import re
 import shutil
 import uuid
+from dataclasses import replace
 from datetime import datetime
 
 from aiogram import Router, F
-from aiogram.types import Message, FSInputFile
+from aiogram.types import Message, FSInputFile, CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.filters import Command
 
 from ..config import config
@@ -18,6 +19,20 @@ from ..services.pdf_generator import generate_pdf
 
 logger = logging.getLogger(__name__)
 router = Router()
+
+# User settings storage (chat_id -> settings dict)
+# In production, consider using a persistent storage like Redis or a database
+user_settings: dict[int, dict] = {}
+
+# Model options
+MODELS = {
+    "flash": "gemini-3-flash-preview",
+    "pro": "gemini-3-pro-preview",
+}
+
+# Default models
+DEFAULT_TRANSCRIBER_MODEL = "flash"
+DEFAULT_EDITOR_MODEL = "pro"
 
 # Supported audio MIME types
 AUDIO_MIME_TYPES = [
@@ -104,10 +119,193 @@ async def cmd_help(message: Message):
         "Example: `https://youtu.be/...`\n\n"
         "*Audio Files:*\n"
         "Send me an audio file (mp3, m4a, wav, webm, etc.)\n\n"
+        "*Settings:*\n"
+        "`/model` - Choose AI model (Flash/Pro)\n"
+        "`/translation` - Toggle inline Chinese translation\n\n"
         "*Output:*\n"
         "You'll receive:\n"
         "- A Markdown file with the formatted transcript\n"
         "- A PDF file for easy reading and sharing",
+        parse_mode="Markdown",
+    )
+
+
+@router.message(Command("translation"))
+async def cmd_translation(message: Message):
+    """Handle /translation command - show translation mode selection menu."""
+    chat_id = message.chat.id
+
+    # Get current setting
+    current_value = user_settings.get(chat_id, {}).get("translation", False)
+
+    # Build inline keyboard
+    keyboard = [
+        [
+            InlineKeyboardButton(
+                text=f"{'✓ ' if not current_value else ''}Off",
+                callback_data="translation_off",
+            ),
+            InlineKeyboardButton(
+                text=f"{'✓ ' if current_value else ''}On",
+                callback_data="translation_on",
+            ),
+        ],
+    ]
+
+    status = "ON" if current_value else "OFF"
+    await message.answer(
+        f"*Translation Settings*\n\n"
+        f"Current: *{status}*\n\n"
+        "When enabled, non-Chinese transcripts will include inline Chinese translations:\n"
+        "`Original text here.`\n"
+        "`> 中文翻译在这里。`",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard),
+        parse_mode="Markdown",
+    )
+
+
+@router.callback_query(F.data.startswith("translation_"))
+async def translation_callback(callback: CallbackQuery):
+    """Handle translation selection callbacks."""
+    if not callback.data or not callback.message:
+        return
+
+    await callback.answer()
+
+    chat_id = callback.message.chat.id
+    new_value = callback.data == "translation_on"
+
+    # Get current value
+    current_value = user_settings.get(chat_id, {}).get("translation", False)
+
+    if new_value == current_value:
+        # Already selected, just delete the menu
+        try:
+            await callback.message.delete()
+        except Exception:
+            pass
+        return
+
+    # Update setting
+    user_settings.setdefault(chat_id, {})["translation"] = new_value
+
+    # Delete the menu and send confirmation
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
+
+    status = "ON" if new_value else "OFF"
+    await callback.message.answer(
+        f"✓ Translation mode set to *{status}*",
+        parse_mode="Markdown",
+    )
+
+
+@router.message(Command("model"))
+async def cmd_model(message: Message):
+    """Handle /model command - show model selection menu."""
+    chat_id = message.chat.id
+    settings = user_settings.get(chat_id, {})
+
+    # Get current models
+    current_transcriber = settings.get("transcriber_model", DEFAULT_TRANSCRIBER_MODEL)
+    current_editor = settings.get("editor_model", DEFAULT_EDITOR_MODEL)
+
+    # Build inline keyboard
+    keyboard = [
+        [InlineKeyboardButton(
+            text="── Transcriber ──",
+            callback_data="model_noop",
+        )],
+        [
+            InlineKeyboardButton(
+                text=f"{'✓ ' if current_transcriber == 'flash' else ''}Flash",
+                callback_data="model_transcriber_flash",
+            ),
+            InlineKeyboardButton(
+                text=f"{'✓ ' if current_transcriber == 'pro' else ''}Pro",
+                callback_data="model_transcriber_pro",
+            ),
+        ],
+        [InlineKeyboardButton(
+            text="── Editor ──",
+            callback_data="model_noop",
+        )],
+        [
+            InlineKeyboardButton(
+                text=f"{'✓ ' if current_editor == 'flash' else ''}Flash",
+                callback_data="model_editor_flash",
+            ),
+            InlineKeyboardButton(
+                text=f"{'✓ ' if current_editor == 'pro' else ''}Pro",
+                callback_data="model_editor_pro",
+            ),
+        ],
+    ]
+
+    await message.answer(
+        "*Model Settings*\n\n"
+        f"Transcriber: *{current_transcriber.upper()}* (`{MODELS[current_transcriber]}`)\n"
+        f"Editor: *{current_editor.upper()}* (`{MODELS[current_editor]}`)\n\n"
+        "Select model for each component:",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard),
+        parse_mode="Markdown",
+    )
+
+
+@router.callback_query(F.data.startswith("model_"))
+async def model_callback(callback: CallbackQuery):
+    """Handle model selection callbacks."""
+    if not callback.data or not callback.message:
+        return
+
+    await callback.answer()
+
+    # Ignore noop callbacks (section headers)
+    if callback.data == "model_noop":
+        return
+
+    chat_id = callback.message.chat.id
+    data = callback.data
+
+    # Parse callback data: model_<component>_<model>
+    parts = data.split("_")
+    if len(parts) != 3:
+        return
+
+    _, component, model = parts
+    if component not in ("transcriber", "editor") or model not in ("flash", "pro"):
+        return
+
+    # Update settings
+    settings = user_settings.setdefault(chat_id, {})
+    settings_key = f"{component}_model"
+    old_model = settings.get(settings_key, DEFAULT_TRANSCRIBER_MODEL if component == "transcriber" else DEFAULT_EDITOR_MODEL)
+
+    if model == old_model:
+        # Already selected, just delete the menu
+        try:
+            await callback.message.delete()
+        except Exception:
+            pass
+        await callback.message.chat.do(
+            action="typing"
+        )  # Dummy action to avoid "query is too old" error
+        return
+
+    settings[settings_key] = model
+
+    # Delete the menu and send confirmation
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
+
+    component_name = "Transcriber" if component == "transcriber" else "Editor"
+    await callback.message.answer(
+        f"✓ {component_name} model set to *{model.upper()}*\n"
+        f"(`{MODELS[model]}`)",
         parse_mode="Markdown",
     )
 
@@ -126,14 +324,18 @@ async def handle_audio(message: Message):
         file = message.document
         # Check MIME type - only accept audio files
         if file.mime_type:
-            if file.mime_type.startswith("video/"):
+            # Allow webm files even if marked as video/webm (often contains audio only)
+            is_webm = file.mime_type == "video/webm" or (
+                file.file_name and file.file_name.lower().endswith(".webm")
+            )
+            if file.mime_type.startswith("video/") and not is_webm:
                 # Reject video files - they need ffmpeg extraction which we don't support
                 await message.answer(
                     "Video files are not supported. "
                     "Please extract the audio first or send an audio file directly."
                 )
                 return
-            if not file.mime_type.startswith("audio/"):
+            if not file.mime_type.startswith("audio/") and not is_webm:
                 # Not an audio file, ignore
                 return
         file_name = file.file_name or f"audio_{uuid.uuid4().hex[:8]}"
@@ -183,6 +385,26 @@ async def _process_youtube_url(
     message: Message, url: str, status_message: Message
 ) -> None:
     """Process a YouTube URL and send the transcript."""
+    # Get user settings
+    chat_id = message.chat.id
+    settings = user_settings.get(chat_id, {})
+    enable_translation = settings.get("translation", False)
+
+    # Get user model preferences
+    transcriber_model_key = settings.get("transcriber_model", DEFAULT_TRANSCRIBER_MODEL)
+    editor_model_key = settings.get("editor_model", DEFAULT_EDITOR_MODEL)
+    transcriber_model = MODELS[transcriber_model_key]
+    editor_model = MODELS[editor_model_key]
+
+    # Create config overrides if user selected different models
+    transcriber_config = config.transcriber
+    if transcriber_model != config.transcriber.model:
+        transcriber_config = replace(config.transcriber, model=transcriber_model)
+
+    editor_config = config.editor
+    if editor_model != config.editor.model:
+        editor_config = replace(config.editor, model=editor_model)
+
     # Create a unique temporary directory for this request to prevent collisions
     request_id = uuid.uuid4().hex[:12]
     request_temp_dir = os.path.join(config.temp_dir, f"yt_{request_id}")
@@ -197,7 +419,7 @@ async def _process_youtube_url(
         await status_message.edit_text("Transcribing audio...")
         raw_transcript = await transcribe(
             audio_path,
-            config.transcriber,
+            transcriber_config,
             on_status=lambda s: logger.info(s),
         )
 
@@ -205,7 +427,8 @@ async def _process_youtube_url(
         await status_message.edit_text("Formatting transcript...")
         edited_transcript = await edit(
             raw_transcript,
-            config.editor,
+            editor_config,
+            enable_translation=enable_translation,
             on_status=lambda s: logger.info(s),
         )
 
@@ -257,6 +480,26 @@ async def _process_audio_file(
     message: Message, file, file_name: str, status_message: Message
 ) -> None:
     """Process an uploaded audio file and send the transcript."""
+    # Get user settings
+    chat_id = message.chat.id
+    settings = user_settings.get(chat_id, {})
+    enable_translation = settings.get("translation", False)
+
+    # Get user model preferences
+    transcriber_model_key = settings.get("transcriber_model", DEFAULT_TRANSCRIBER_MODEL)
+    editor_model_key = settings.get("editor_model", DEFAULT_EDITOR_MODEL)
+    transcriber_model = MODELS[transcriber_model_key]
+    editor_model = MODELS[editor_model_key]
+
+    # Create config overrides if user selected different models
+    transcriber_config = config.transcriber
+    if transcriber_model != config.transcriber.model:
+        transcriber_config = replace(config.transcriber, model=transcriber_model)
+
+    editor_config = config.editor
+    if editor_model != config.editor.model:
+        editor_config = replace(config.editor, model=editor_model)
+
     # Sanitize filename to prevent path traversal attacks
     safe_filename = sanitize_filename(file_name)
     base_name = os.path.splitext(safe_filename)[0] or "audio"
@@ -281,7 +524,7 @@ async def _process_audio_file(
         await status_message.edit_text("Transcribing audio...")
         raw_transcript = await transcribe(
             audio_path,
-            config.transcriber,
+            transcriber_config,
             on_status=lambda s: logger.info(s),
         )
 
@@ -289,7 +532,8 @@ async def _process_audio_file(
         await status_message.edit_text("Formatting transcript...")
         edited_transcript = await edit(
             raw_transcript,
-            config.editor,
+            editor_config,
+            enable_translation=enable_translation,
             on_status=lambda s: logger.info(s),
         )
 
