@@ -542,19 +542,23 @@ async def _process_video_url(
         pdf_path = os.path.join(request_temp_dir, "transcript.pdf")
         await generate_pdf(edited_transcript, pdf_path)
 
+        # Upload to rclone if enabled for this user
+        rclone_uploaded = await upload_to_rclone(md_path, f"{output_filename}.md", chat_id)
+
         # Send files
         await status_message.edit_text("Sending files...")
 
-        md_file = FSInputFile(md_path, filename=f"{output_filename}.md")
         pdf_file = FSInputFile(pdf_path, filename=f"{output_filename}.pdf")
 
-        await message.answer_document(md_file, caption="Markdown transcript")
+        # Only send .md if rclone upload was not successful
+        if not rclone_uploaded:
+            md_file = FSInputFile(md_path, filename=f"{output_filename}.md")
+            await message.answer_document(md_file, caption="Markdown transcript")
+
         await message.answer_document(pdf_file, caption="PDF transcript")
 
-        # Upload to rclone if enabled for this user
-        rclone_uploaded = await upload_to_rclone(md_path, f"{output_filename}.md", chat_id)
         if rclone_uploaded:
-            await status_message.edit_text("Done! Your transcript is ready. (Synced to Dropbox)")
+            await status_message.edit_text("Done! Your transcript is ready. (Markdown synced to Dropbox)")
         else:
             await status_message.edit_text("Done! Your transcript is ready.")
 
@@ -652,19 +656,23 @@ async def _process_audio_file(
         pdf_path = os.path.join(request_temp_dir, "transcript.pdf")
         await generate_pdf(edited_transcript, pdf_path)
 
+        # Upload to rclone if enabled for this user
+        rclone_uploaded = await upload_to_rclone(md_path, f"{output_filename}.md", chat_id)
+
         # Send files
         await status_message.edit_text("Sending files...")
 
-        md_file = FSInputFile(md_path, filename=f"{output_filename}.md")
         pdf_file = FSInputFile(pdf_path, filename=f"{output_filename}.pdf")
 
-        await message.answer_document(md_file, caption="Markdown transcript")
+        # Only send .md if rclone upload was not successful
+        if not rclone_uploaded:
+            md_file = FSInputFile(md_path, filename=f"{output_filename}.md")
+            await message.answer_document(md_file, caption="Markdown transcript")
+
         await message.answer_document(pdf_file, caption="PDF transcript")
 
-        # Upload to rclone if enabled for this user
-        rclone_uploaded = await upload_to_rclone(md_path, f"{output_filename}.md", chat_id)
         if rclone_uploaded:
-            await status_message.edit_text("Done! Your transcript is ready. (Synced to Dropbox)")
+            await status_message.edit_text("Done! Your transcript is ready. (Markdown synced to Dropbox)")
         else:
             await status_message.edit_text("Done! Your transcript is ready.")
 

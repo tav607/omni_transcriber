@@ -13,9 +13,11 @@ from ..utils.retry import with_retry
 logger = logging.getLogger(__name__)
 
 TRANSCRIPTION_PROMPT = (
-    "Transcribe this audio. If the language is Chinese, please use Simplified "
+    "Transcribe this audio verbatim. If the language is Chinese, please use Simplified "
     "Chinese characters. Provide only the direct transcription text without any "
-    "introductory phrases."
+    "introductory phrases. "
+    "IMPORTANT: Transcribe exactly what is spoken. Do NOT correct or change "
+    "product names, version numbers, or technical terms — even if they seem incorrect or unfamiliar."
 )
 
 

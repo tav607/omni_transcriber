@@ -79,7 +79,7 @@ Start with a level-1 heading (title), then divide into three sections with level
 
 ### 3. Transcript (保持原文语言)
 - **CRITICAL: Output the COMPLETE transcript** - Do NOT truncate, summarize, or omit any content. Every sentence from the original must appear in the output.
-- **Correct mistranscriptions**: Fix any clearly erroneous words or phrases based on context (output only the corrected version, do not show original errors)
+- **Correct mistranscriptions**: Fix only obvious speech-to-text errors (homophones, garbled words). NEVER change proper nouns, product names, version numbers, or technical terms — even if they seem incorrect
 - **Clean up**: Remove all fillers ("um," "uh," "嗯," "那个"), stammers, repetitions, and meaningless padding
 - **Paragraph breaks**: Split by speaker change or natural topic shifts (not by rigid word/sentence counts)
 
