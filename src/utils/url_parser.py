@@ -42,6 +42,7 @@ def extract_video_id(url: str) -> str | None:
     - https://youtube.com/shorts/VIDEO_ID
     - https://www.youtube.com/embed/VIDEO_ID
     - https://youtube.com/v/VIDEO_ID
+    - https://www.youtube.com/live/VIDEO_ID
 
     Args:
         url: The YouTube URL to parse
@@ -96,6 +97,12 @@ def extract_video_id(url: str) -> str | None:
             # Handle /v/ URLs
             if "/v/" in path:
                 match = re.search(r"/v/([a-zA-Z0-9_-]{11})", path)
+                if match:
+                    return match.group(1)
+
+            # Handle /live/ URLs (YouTube live streams, including ended ones)
+            if "/live/" in path:
+                match = re.search(r"/live/([a-zA-Z0-9_-]{11})", path)
                 if match:
                     return match.group(1)
 

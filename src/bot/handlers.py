@@ -14,6 +14,7 @@ from aiogram.filters import Command
 
 from ..config import config
 from ..utils.url_parser import is_youtube_url, is_bilibili_url, is_apple_podcasts_url, is_supported_url, get_url_platform, extract_video_id
+from ..utils import settings_store
 from ..services.downloader import download_audio
 from ..services.transcriber import transcribe
 from ..services.editor import edit
@@ -22,9 +23,8 @@ from ..services.pdf_generator import generate_pdf
 logger = logging.getLogger(__name__)
 router = Router()
 
-# User settings storage (chat_id -> settings dict)
-# In production, consider using a persistent storage like Redis or a database
-user_settings: dict[int, dict] = {}
+# Initialize settings store on module load
+settings_store.init()
 
 # Model options
 MODELS = {
@@ -184,7 +184,7 @@ async def cmd_translation(message: Message):
     chat_id = message.chat.id
 
     # Get current setting
-    current_value = user_settings.get(chat_id, {}).get("translation", False)
+    current_value = settings_store.get(chat_id, "translation", False)
 
     # Build inline keyboard
     keyboard = [
@@ -224,7 +224,7 @@ async def translation_callback(callback: CallbackQuery):
     new_value = callback.data == "translation_on"
 
     # Get current value
-    current_value = user_settings.get(chat_id, {}).get("translation", False)
+    current_value = settings_store.get(chat_id, "translation", False)
 
     if new_value == current_value:
         # Already selected, just delete the menu
@@ -235,7 +235,7 @@ async def translation_callback(callback: CallbackQuery):
         return
 
     # Update setting
-    user_settings.setdefault(chat_id, {})["translation"] = new_value
+    settings_store.set(chat_id, "translation", new_value)
 
     # Delete the menu and send confirmation
     try:
@@ -254,11 +254,10 @@ async def translation_callback(callback: CallbackQuery):
 async def cmd_model(message: Message):
     """Handle /model command - show model selection menu."""
     chat_id = message.chat.id
-    settings = user_settings.get(chat_id, {})
 
     # Get current models
-    current_transcriber = settings.get("transcriber_model", DEFAULT_TRANSCRIBER_MODEL)
-    current_editor = settings.get("editor_model", DEFAULT_EDITOR_MODEL)
+    current_transcriber = settings_store.get(chat_id, "transcriber_model", DEFAULT_TRANSCRIBER_MODEL)
+    current_editor = settings_store.get(chat_id, "editor_model", DEFAULT_EDITOR_MODEL)
 
     # Build inline keyboard
     keyboard = [
@@ -327,9 +326,9 @@ async def model_callback(callback: CallbackQuery):
         return
 
     # Update settings
-    settings = user_settings.setdefault(chat_id, {})
     settings_key = f"{component}_model"
-    old_model = settings.get(settings_key, DEFAULT_TRANSCRIBER_MODEL if component == "transcriber" else DEFAULT_EDITOR_MODEL)
+    default_model = DEFAULT_TRANSCRIBER_MODEL if component == "transcriber" else DEFAULT_EDITOR_MODEL
+    old_model = settings_store.get(chat_id, settings_key, default_model)
 
     if model == old_model:
         # Already selected, just delete the menu
@@ -342,7 +341,7 @@ async def model_callback(callback: CallbackQuery):
         )  # Dummy action to avoid "query is too old" error
         return
 
-    settings[settings_key] = model
+    settings_store.set(chat_id, settings_key, model)
 
     # Delete the menu and send confirmation
     try:
@@ -464,12 +463,11 @@ async def _process_video_url(
     """Process a video URL (YouTube/Bilibili) and send the transcript."""
     # Get user settings
     chat_id = message.chat.id
-    settings = user_settings.get(chat_id, {})
-    enable_translation = settings.get("translation", False)
+    enable_translation = settings_store.get(chat_id, "translation", False)
 
     # Get user model preferences
-    transcriber_model_key = settings.get("transcriber_model", DEFAULT_TRANSCRIBER_MODEL)
-    editor_model_key = settings.get("editor_model", DEFAULT_EDITOR_MODEL)
+    transcriber_model_key = settings_store.get(chat_id, "transcriber_model", DEFAULT_TRANSCRIBER_MODEL)
+    editor_model_key = settings_store.get(chat_id, "editor_model", DEFAULT_EDITOR_MODEL)
     transcriber_model = MODELS[transcriber_model_key]
     editor_model = MODELS[editor_model_key]
 
@@ -576,12 +574,11 @@ async def _process_audio_file(
     """Process an uploaded audio file and send the transcript."""
     # Get user settings
     chat_id = message.chat.id
-    settings = user_settings.get(chat_id, {})
-    enable_translation = settings.get("translation", False)
+    enable_translation = settings_store.get(chat_id, "translation", False)
 
     # Get user model preferences
-    transcriber_model_key = settings.get("transcriber_model", DEFAULT_TRANSCRIBER_MODEL)
-    editor_model_key = settings.get("editor_model", DEFAULT_EDITOR_MODEL)
+    transcriber_model_key = settings_store.get(chat_id, "transcriber_model", DEFAULT_TRANSCRIBER_MODEL)
+    editor_model_key = settings_store.get(chat_id, "editor_model", DEFAULT_EDITOR_MODEL)
     transcriber_model = MODELS[transcriber_model_key]
     editor_model = MODELS[editor_model_key]
 
